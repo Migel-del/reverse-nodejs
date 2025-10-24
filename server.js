@@ -1,18 +1,32 @@
-import express from "express";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import http from "http";
+import httpProxy from "http-proxy";
 
-const app = express();
-const target = "http://185.87.49.204:2099"; // backend, как в nginx
-
-app.use("/", createProxyMiddleware({
-  target,
-  changeOrigin: true,
-  ws: true,
-  onProxyReq: (proxyReq, req, res) => {
-    proxyReq.setHeader("Upgrade", req.headers["upgrade"] || "websocket");
-    proxyReq.setHeader("Connection", "Upgrade");
-  }
-}));
-
+const TARGET = "http://185.87.49.204:2099"; // твой backend
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🔥 Reverse proxy running on ${PORT}`));
+
+// создаём прокси-сервер
+const proxy = httpProxy.createProxyServer({
+  target: TARGET,
+  ws: true,
+  changeOrigin: true,
+  secure: false
+});
+
+// обычные HTTP-запросы
+const server = http.createServer((req, res) => {
+  proxy.web(req, res, { target: TARGET }, (err) => {
+    console.error("❌ Proxy error:", err);
+    res.writeHead(502);
+    res.end("Bad Gateway");
+  });
+});
+
+// поддержка Upgrade (WebSocket/gRPC)
+server.on("upgrade", (req, socket, head) => {
+  console.log("🔄 Upgrade request:", req.headers["upgrade"]);
+  proxy.ws(req, socket, head, { target: TARGET });
+});
+
+server.listen(PORT, () => {
+  console.log(`🚀 Reverse proxy running on port ${PORT}`);
+});
